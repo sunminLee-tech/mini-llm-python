@@ -1,17 +1,12 @@
 import uvicorn
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
+import os
+from dotenv import load_dotenv
+from openai import OpenAI
 
+load_dotenv()
 app = FastAPI(title="LLM Toy API")
-
-
-@app.post("/debug")
-async def debug(request: Request):
-    body = await request.body()
-    print(f"[DEBUG] raw body: {body}")
-    print(f"[DEBUG] headers: {request.headers}")
-    return {"raw": body.decode() if body else "empty"}
-
 
 class ChatRequest(BaseModel):
     clientId: str
@@ -20,14 +15,19 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 def chat(request: ChatRequest):
-  
+    client = OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": "너는 도움이 되는 한국어 어시스턴트야"},
+            {"role": "user", "content": request.message}
+        ],
+        temperature=0.7
+    )
+    print(f"[요청]", response.choices[0].message.content)
+    return  {"message": response.choices[0].message.content}
     
-    print(f"[요청] clientId: {request.clientId}, message: {request.message}")
-    # TODO: LLM 호출 로직
-    return {
-        "clientId": request.clientId,
-        "response": f"받은 메시지: {request.message}"
-    }
+   
 
 
 @app.get("/health")
