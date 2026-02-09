@@ -61,6 +61,20 @@ tools = [
                 "required": ["title"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_schedule",
+            "description": "노션에서 일정을 조회한다. 제목으로 검색하거나 전체 일정을 가져온다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "검색할 일정 제목 (없으면 전체 조회)"}
+                },
+                "required": []
+            }
+        }
     }
 ]
 
@@ -109,6 +123,24 @@ def modify_schedule(title: str, new_title: str = "", new_date: str = "", new_sta
     return {"modified": False, "message": f"'{title}' 일정을 찾을 수 없습니다"}
 
 
+def get_schedule(title: str = ""):
+    results = notion.search(query=title, filter={"property": "object", "value": "page"})
+    schedules = []
+    for page in results["results"]:
+        props = page["properties"]
+        page_title = props.get("title", {}).get("title", [])
+        page_date = props.get("date", {}).get("date")
+        page_status = props.get("status", {}).get("status")
+        schedules.append({
+            "title": page_title[0]["plain_text"] if page_title else "",
+            "date": page_date["start"] if page_date else "",
+            "status": page_status["name"] if page_status else "",
+        })
+    if not schedules:
+        return {"found": False, "message": "일정이 없습니다"}
+    return {"found": True, "schedules": schedules}
+
+
 class ChatRequest(BaseModel):
     clientId: str
     message: str
@@ -118,7 +150,7 @@ class ChatRequest(BaseModel):
 def chat(request: ChatRequest):
     messages = [
         {"role": "system", "content": "너는 도움이 되는 한국어 어시스턴트야. 사용자가 일정 추가를 요청하면 create_schedule 함수를 사용해."
-        " 사용자가 일정 삭제를 요청하면 remove_schedule 함수를 사용해. 사용자가 일정 수정을 요청하면 modify_schedule 함수를 사용해.  "},
+        " 사용자가 일정 삭제를 요청하면 remove_schedule 함수를 사용해. 사용자가 일정 수정을 요청하면 modify_schedule 함수를 사용해. 사용자가 일정 조회를 요청하면 get_schedule 함수를 사용해."},
         {"role": "user", "content": request.message}
     ]
 
@@ -146,6 +178,9 @@ def chat(request: ChatRequest):
         elif tool_call.function.name == "modify_schedule":
             print(f"[Tool 호출] modify_schedule: {args}")
             result = modify_schedule(**args)
+        elif tool_call.function.name == "get_schedule":
+            print(f"[Tool 호출] get_schedule: {args}")
+            result = get_schedule(**args)
 
 
         # 함수 결과를 LLM에게 다시 전달해서 자연어 응답 받기
