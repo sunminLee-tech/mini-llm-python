@@ -6,11 +6,18 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 from notion_client import Client
+import faiss
+import numpy as np
 
 load_dotenv()
 app = FastAPI(title="LLM Toy API")
 client = OpenAI()
+index = faiss.IndexFlatL2(1536)
+doc_store = []  # 벡터에 매핑되는 원본 텍스트 저장
 notion = Client(auth=os.environ["NOTION_TOKEN"])
+SYSTEM_PROMPT = ("너는 도움이 되는 한국어 어시스턴트야. 현재 연도는 2026년이야. 사용자가 날짜를 말하면 2026년 기준으로 처리해."
+    " 사용자가 일정 추가를 요청하면 create_schedule 함수를 사용해."
+    " 사용자가 일정 삭제를 요청하면 remove_schedule 함수를 사용해. 사용자가 일정 수정을 요청하면 modify_schedule 함수를 사용해. 사용자가 일정 조회를 요청하면 get_schedule 함수를 사용해.")
 
 tools = [
     {
@@ -144,13 +151,13 @@ def get_schedule(title: str = ""):
 class ChatRequest(BaseModel):
     clientId: str
     message: str
+    isNew: bool = True
 
 
 @app.post("/chat")
 def chat(request: ChatRequest):
     messages = [
-        {"role": "system", "content": "너는 도움이 되는 한국어 어시스턴트야. 사용자가 일정 추가를 요청하면 create_schedule 함수를 사용해."
-        " 사용자가 일정 삭제를 요청하면 remove_schedule 함수를 사용해. 사용자가 일정 수정을 요청하면 modify_schedule 함수를 사용해. 사용자가 일정 조회를 요청하면 get_schedule 함수를 사용해."},
+        {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": request.message}
     ]
 
@@ -182,7 +189,6 @@ def chat(request: ChatRequest):
             print(f"[Tool 호출] get_schedule: {args}")
             result = get_schedule(**args)
 
-
         # 함수 결과를 LLM에게 다시 전달해서 자연어 응답 받기
         messages.append(choice.model_dump())
         messages.append({
@@ -200,8 +206,20 @@ def chat(request: ChatRequest):
     else:
         reply = choice.content
 
+    # isNew일 때만 제목 요약 생성
+    title = None
+
+    if request.isNew:
+        summary = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": f"다음 대화를 10자 이내 한국어 제목으로 요약해. 제목만 출력해: {request.message}"}],
+            temperature=0
+        )
+        title = summary.choices[0].message.content
+        print(f"[제목] {title}")
+
     print(f"[응답] {reply}")
-    return {"message": reply}
+    return {"message": reply, "title": title}
 
 
 @app.get("/health")
